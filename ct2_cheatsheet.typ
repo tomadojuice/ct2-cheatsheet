@@ -181,17 +181,22 @@ while ((R16 & (1 << 5)) == 0) { }
 
 == XOR Trick (exam recipe)
 
-Given the addresses that select a peripheral, *XOR them all together*. Bits that come out as `1` are *ignored* lines (not decoded). Count = number of ignored lines.
+For each bit position, check if it *varies* across the given addresses (any address has 0 AND any has 1). Varying bits are *ignored* (decoder doesn't check them).
+
+*Shortcut*: XOR all addresses together. Bits set to `1` in the result are ignored. *Caveat*: XOR cancels when an even number of addresses have a `1` at a position — if the result seems wrong, fall back to per-bit inspection.
 
 #formula[
   Example: addresses `0x6D, 0x7F, 0x6F, 0x7D`
-  
+
   `0110 1101 ⊕ 0111 1111 ⊕ 0110 1111 ⊕ 0111 1101`
-  
+
   = `0001 0010` → bits *1* and *4* ignored (2 lines)
+
+  Fallback example: `0x4C, 0x6D, 0x4D, 0x6C` → XOR = 0x00 (cancels!)\
+  Per-bit: bit 5 = {0,1,0,1} varies; bit 0 = {0,1,1,0} varies → *2 lines ignored: 0 and 5*
 ]
 
-#tip[Past exam patterns: 2-bit ignored on FS23/FS24, 6-bit ignored on FS22 (only 2 of 8 decoded).]
+#tip[Past exam patterns: 2 ignored lines in FS22, FS23, FS24.]
 
 // ============================================================
 = 3. Bus Access — Little Endian
@@ -383,8 +388,14 @@ Base GPIOF = `0x4002'1400`. Pin 14 → 2-bit shift = `28`, 1-bit shift = `14`.
 
 #formula[
   $T_"max with PSC=1" = 65536 / 40"MHz" = 1.638"ms" arrow.r$ too short
-  
-  Need PSC ≥ $20"ms" / 1.638"ms" approx 12.2 arrow.r$ next int = *13* (or 16 if "next pow-of-2")
+
+  Min divisor needed: $20"ms" / 1.638"ms" approx 12.2 arrow.r$ divisor ≥ 13
+
+  But ARR must be an integer: divisor must divide $f_"src" times T = 40"MHz" times 20"ms" = 800000$ evenly.
+
+  Smallest divisor ≥ 13 that divides 800000: *16* (800000/16 = 50000)
+
+  → $f_"tick" = 40"MHz"/16 = 2.5"MHz"$, ARR = $50000 - 1 = 49999$
 ]
 
 == Up-counter vs Down-counter PWM (IMPORTANT)
@@ -783,9 +794,19 @@ Receiver re-syncs on falling edge of START, then samples each bit *in the middle
 
 == Decoding bit numbers in a stream
 
-Number bits 0..N from start. Bit 0 = start. Then 1..8 = data (LSB at bit 1). Then parity, then stop. *Watch which bit number maps to parity vs stop*.
+Bits inside one frame (0-indexed from start bit):
 
-E.g. 8 data + parity + 1 stop, "Bit 14 = parity"? Bits 1–13 = ? actually 1+8+parity = bit positions 0(start), 1–8 (data), 9 (parity), 10 (stop). So bit number 14 only fits if we're in a *second* frame.
+#table(columns: (auto, auto, 1fr),
+  table.header([*Bit*], [*Field*], [*Note*]),
+  [0], [START], [always LOW],
+  [1–N], [Data], [LSB first (bit 1 = D0)],
+  [N+1], [Parity], [if enabled],
+  [last], [STOP], [always HIGH],
+)
+
+For 8 data + parity + 1 stop: positions 0 (start), 1–8 (data), 9 (parity), 10 (stop).
+
+When an exam timing diagram labels bits across a *multi-byte stream*, position numbers continue past 10 into the next frame. Map position → frame by: frame = floor(pos / frame_len), local bit = pos mod frame_len.
 
 == USART Registers (STM32)
 
